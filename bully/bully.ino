@@ -1,5 +1,5 @@
-/*  Group 8
- *  EC544 Challenge 01
+/*  Group 5
+ *  EC544 Challenge 6
  *  InfectiousSwarm.ino
  */
 
