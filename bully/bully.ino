@@ -15,7 +15,7 @@ String identity = "";
 
 // Looping Variables
 boolean isLeader;
-int leaderID = -1;
+int leaderID;
 int final_id;
 
 // Function to read in the Thermometer NI value
@@ -24,9 +24,9 @@ int checkLeader_timer = 0;
 int election_timer = 0;
 int leader_timer = 0;
 
-int election_timeout = 5;
-int checkLeader_timeout = 10;
-int leader_timeout = 3;
+int election_timeout = 8;
+int checkLeader_timeout = 8;
+int leader_timeout = 5;
 
 String getIdentity() {
   String s;
@@ -72,6 +72,8 @@ void setup() {
   isLeader = false;
   identity = getIdentity();
   final_id = identity.toInt();
+  leaderID = -1;
+  Serial.println("My Identity is : "+ identity);
   Serial.println("Setup Complete");
 }
 
@@ -91,11 +93,13 @@ String readTheMsg() {
 
 //rebroadcast leader id
 void rebroadcastMsg(int id) {
-  xbee.println(String(id) + ":Leader");
+  xbee.print(String(id) + ":Leader\n");
+  Serial.println("Final_id is :" + String(id));
 }
 
 void leaderBroadcast() {
-  xbee.println(identity+ ":Alive");
+  xbee.print(identity+ ":Alive\n");
+  Serial.println("The new leader :" + String(leaderID));
 }
 
 boolean checkLeaderExpire() {
@@ -110,6 +114,38 @@ boolean checkLeaderExpire() {
 
 
 void loop() {
+  if (xbee.available() > 0) {
+    String msg = readTheMsg();
+    String info = msg.substring(msg.indexOf(':') + 1);
+    int id = msg.substring(0,msg.indexOf(':')).toInt();
+    String tmp = "Leader";
+    info = String(info);
+    Serial.println(info);
+    if (info == tmp) {
+      Serial.println("here1");
+      if (id > final_id) {
+        final_id = id;
+        election_timer = 0;
+        rebroadcastMsg(final_id);
+        Serial.println("here2");
+      } else if (election_timer < election_timeout){
+        election_timer++;
+        rebroadcastMsg(final_id);
+        Serial.println("here3");
+      } else {
+        election_timer = 0;
+        leaderID = final_id;
+         Serial.println("here4");
+      }
+    } else if (info == "Alive"){
+      if (leaderID == id) {
+        checkLeader_timer = 0;
+        Serial.println("Leader ID : "+String(leaderID));
+      } else {
+        rebroadcastMsg(final_id);
+      }
+    }
+  }
   if (leaderID == identity.toInt()) {
     if (leader_timer == leader_timeout) {
       leader_timer = 0;
@@ -119,27 +155,13 @@ void loop() {
     }
   } else {
     if (checkLeaderExpire()) {
-      rebroadcastMsg(final_id);
-    }
-  }
-  if (xbee.available() > 0) {
-    String msg = readTheMsg();
-    String info = msg.substring(msg.indexOf(":") + 1);
-    int id = msg.substring(0,msg.indexOf(":")).toInt();
-    if (info.equals("Leader")) {
-      if (id > final_id) {
-        final_id = id;
-        election_timer = 0;
+      if (election_timer < election_timeout) {
         rebroadcastMsg(final_id);
-      } else if (election_timer < election_timeout){
         election_timer++;
-        rebroadcastMsg(final_id);
       } else {
-        election_timer = 0;
+        // election_timer = 0
         leaderID = final_id;
       }
-    } else if (info.equals("Alive") && leaderID == id){
-      checkLeader_timer = 0;
     }
   }
   delay(500);
