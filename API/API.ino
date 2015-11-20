@@ -43,14 +43,18 @@ AtCommandRequest atRequest = AtCommandRequest(command1);
 ZBTxStatusResponse txStatus = ZBTxStatusResponse();
 AtCommandResponse atResponse = AtCommandResponse();
 
-uint8_t payload[] = {5,6};
+uint8_t payload[] = {'w','y'};
 XBeeAddress64 broadcastAddr = XBeeAddress64(0x00000000, 0x0000FFFF); 
 ZBTxRequest zbTx = ZBTxRequest(broadcastAddr, payload, sizeof(payload));
 
 void processResponse(){
   if (xbee.getResponse().isAvailable()) {
       // got something
-      Serial.println("xbee.getResponse is available");     
+
+      //xbee conntected
+      Serial.println("xbee.getResponse is available");
+      Serial.println(xbee.getResponse().getApiId());
+      Serial.println(ZB_RX_RESPONSE);     
       if (xbee.getResponse().getApiId() == ZB_RX_RESPONSE) {
         // got a zb rx packet
         
@@ -67,9 +71,10 @@ void processResponse(){
         }
         
         Serial.print("checksum is ");
+        //16 
         Serial.println(rx.getChecksum(), HEX);
-
         Serial.print("packet length is ");
+        //10
         Serial.println(rx.getPacketLength(), DEC);
         
          for (int i = 0; i < rx.getDataLength(); i++) {
@@ -78,14 +83,15 @@ void processResponse(){
           Serial.print("] is ");
           Serial.println(rx.getData()[i], HEX);
         }
+        Serial.println(xbee.getResponse().getFrameDataLength());
         
-       for (int i = 0; i < xbee.getResponse().getFrameDataLength(); i++) {
-        Serial.print("frame data [");
-        Serial.print(i, DEC);
-        Serial.print("] is ");
-        Serial.println(xbee.getResponse().getFrameData()[i], HEX);
-      }
-        
+//       for (int i = 0; i < xbee.getResponse().getFrameDataLength(); i++) {
+//        Serial.print("frame data [");
+//        Serial.print(i, DEC);
+//        Serial.print("] is ");
+//        Serial.println(xbee.getResponse().getFrameData()[i], HEX);
+//      }
+//        
       }
     } else if (xbee.getResponse().isError()) {
       Serial.print("error code:");
@@ -204,12 +210,12 @@ void sendTx(ZBTxRequest zbTx){
 }
 
 void loop(){
+  xbee.send(zbTx);
 //  sendTx(zbTx);
-//  delay(1000);
-    xbee.readPacket();
-//  processResponse();
+  delay(1000);
+  xbee.readPacket();
+  processResponse();
 
-  Serial.println(xbee.getResponse().isAvailable());
 
   
 }
