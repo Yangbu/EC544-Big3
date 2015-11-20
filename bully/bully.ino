@@ -32,6 +32,8 @@ int election_timeout = 8;
 int checkLeader_timeout = 8;
 int leader_timeout = 5;
 
+bool expireFlag = true; //new
+
 String getIdentity() {
   String s;
 
@@ -98,12 +100,12 @@ String readTheMsg() {
 //rebroadcast leader id
 void rebroadcastMsg(int id) {
   xbee.print(String(id) + ":Leader\n");
-  Serial.println("Final_id is :" + String(id));
+  Serial.println("Temp Leader :" + String(id));
 }
 
 void leaderBroadcast() {
   xbee.print(identity+ ":Alive\n");
-  Serial.println("The new leader :" + String(leaderID));
+  Serial.println("New Leader :" + String(leaderID));
 }
 
 boolean checkLeaderExpire() {
@@ -128,6 +130,7 @@ boolean checkElectionTimeOut() {
 }
 
 void election(String info, int id) {
+  Serial.println("Electing...");
   if (checkElectionTimeOut()) {
     return;
   }
@@ -154,30 +157,31 @@ void election(String info, int id) {
 void loop() {
 
 
-  if (xbee.available() > 0) {
+  if (xbee.available()) {
     String msg = readTheMsg();
     String info = msg.substring(msg.indexOf(':') + 1);
     int id = msg.substring(0,msg.indexOf(':')).toInt();
     if (info == "Leader") {
+      if(!expireFlag)
       election(info, id);
     } else if (info == "Alive"){
+      expireFlag = false;  //new
       if (id == final_id) {
         leaderID = id;
         election_timer = 0;
-        timeout_count = 0;
+        timeout_count = 0;  
         timeout_flag = true;
       }
       if (leaderID == id) {
         checkLeader_timer = 0;
         Serial.println("Leader ID : "+String(leaderID));
+        
       } else {
         rebroadcastMsg(final_id);
+//        final_id = 
         Serial.println("here5");
       }
     }
-    // else if (info == "Infection"){
-    //   //TODO light the leds, infection stuff
-    // }
   } else {
     if (leaderID == identity.toInt()) {
       if (leader_timer == leader_timeout) {
@@ -186,12 +190,16 @@ void loop() {
       } else {
         leader_timer++;
       }
-    } else {
+    }else if(checkLeader_timer==checkLeader_timeout){
+        //fix the bug when remove the rest Arduino but leave one
+        checkLeader_timer = 0;
+        Serial.println("Leader ID : "+String(leaderID));
+    }else {
       checkLeader_timer++;
       Serial.println("checkLeader_timer : " + String(checkLeader_timer) + "election_timer : " +  election_timer);
       if (checkLeaderExpire()) {
         if (election_timer < election_timeout) {
-          Serial.println("here6");
+//          Serial.println("here6");
           rebroadcastMsg(final_id);
           election_timer++;
         } else {
