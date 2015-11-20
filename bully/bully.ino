@@ -1,5 +1,5 @@
-/*  Group 5
- *  EC544 Challenge 6
+/*  Group 8
+ *  EC544 Challenge 01
  *  InfectiousSwarm.ino
  */
 
@@ -19,6 +19,10 @@ int leaderID;
 int final_id;
 
 // Function to read in the Thermometer NI value
+
+
+boolean timeout_flag = false;
+int timeout_count = 0;
 
 int checkLeader_timer = 0;
 int election_timer = 0;
@@ -103,7 +107,7 @@ void leaderBroadcast() {
 }
 
 boolean checkLeaderExpire() {
-  if (checkLeader_timer > checkLeader_timeout || leaderID == -1) {
+  if (checkLeader_timer >= checkLeader_timeout || leaderID == -1) {
     leaderID = -1;
     return true;
   } else {
@@ -111,59 +115,92 @@ boolean checkLeaderExpire() {
   }
 }
 
+boolean checkElectionTimeOut() {
+  if (timeout_flag) {
+    if (timeout_count < 3) {
+      timeout_count++;
+    } else {
+      timeout_flag = false;
+      timeout_count = 0;
+    }
+  }
+  return timeout_flag;
+}
 
+void election(String info, int id) {
+  if (checkElectionTimeOut()) {
+    return;
+  }
+  if (id > final_id) {
+    final_id = id;
+    election_timer = 0;
+    rebroadcastMsg(final_id);
+    Serial.println("here2");
+  } else {
+    if (election_timer >= election_timeout){
+      election_timer = 0;
+      timeout_count = 0;
+      timeout_flag = true;
+      leaderID = final_id;
+      Serial.println("here4");
+    } else {
+      election_timer++;
+      rebroadcastMsg(final_id);
+      Serial.println("here3");
+    }
+  }
+}
 
 void loop() {
+
+
   if (xbee.available() > 0) {
     String msg = readTheMsg();
     String info = msg.substring(msg.indexOf(':') + 1);
     int id = msg.substring(0,msg.indexOf(':')).toInt();
-    String tmp = "Leader";
-    info = String(info);
-    Serial.println(info);
-    if (info == tmp) {
-      Serial.println("here1");
-      if (id > final_id) {
-        final_id = id;
-        election_timer = 0;
-        rebroadcastMsg(final_id);
-        Serial.println("here2");
-      } else if (election_timer < election_timeout){
-        election_timer++;
-        rebroadcastMsg(final_id);
-        Serial.println("here3");
-      } else {
-        election_timer = 0;
-        leaderID = final_id;
-         Serial.println("here4");
-      }
+    if (info == "Leader") {
+      election(info, id);
     } else if (info == "Alive"){
+      if (id == final_id) {
+        leaderID = id;
+        election_timer = 0;
+        timeout_count = 0;
+        timeout_flag = true;
+      }
       if (leaderID == id) {
         checkLeader_timer = 0;
         Serial.println("Leader ID : "+String(leaderID));
       } else {
         rebroadcastMsg(final_id);
+        Serial.println("here5");
       }
     }
-  }
-  if (leaderID == identity.toInt()) {
-    if (leader_timer == leader_timeout) {
-      leader_timer = 0;
-      leaderBroadcast();
-    } else {
-      leader_timer++;
-    }
+    // else if (info == "Infection"){
+    //   //TODO light the leds, infection stuff
+    // }
   } else {
-    if (checkLeaderExpire()) {
-      if (election_timer < election_timeout) {
-        rebroadcastMsg(final_id);
-        election_timer++;
+    if (leaderID == identity.toInt()) {
+      if (leader_timer == leader_timeout) {
+        leader_timer = 0;
+        leaderBroadcast();
       } else {
-        // election_timer = 0
-        leaderID = final_id;
+        leader_timer++;
+      }
+    } else {
+      checkLeader_timer++;
+      Serial.println("checkLeader_timer : " + String(checkLeader_timer) + "election_timer : " +  election_timer);
+      if (checkLeaderExpire()) {
+        if (election_timer < election_timeout) {
+          Serial.println("here6");
+          rebroadcastMsg(final_id);
+          election_timer++;
+        } else {
+          // election_timer = 0
+          leaderID = final_id;
+        }
       }
     }
   }
-  delay(500);
+  delay(1000);
 }
 
