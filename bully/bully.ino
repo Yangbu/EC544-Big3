@@ -178,6 +178,7 @@ void checkLeader() {
   } else if(checkLeader_timer==checkLeader_timeout){
         //fix the bug when remove the rest Arduino but leave one
         checkLeader_timer = 0;
+         broadcastMsg(identity);
         Serial.println("Leader ID : "+String(leaderID));
     }else {
       checkLeader_timer++;
