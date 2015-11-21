@@ -6,11 +6,9 @@
 #define BAUD 9600
 // Create an xBee object
 SoftwareSerial xbeeSerial(2,3); // Rx, Tx
-
 // Looping Variables
-boolean isLeader;
-int leaderID;
-int final_id;
+int leaderID = -1;;
+int final_id = -1;;
 
 //identity of this node
 uint8_t identity = 3;
@@ -18,30 +16,25 @@ uint8_t identity = 3;
 boolean timeout_flag = false;
 int timeout_count = 0;
 
+//Timer
 int checkLeader_timer = 0;
 int election_timer = 0;
 int leader_timer = 0;
 
+//TimeOut Const
 int election_timeout = 8;
 int checkLeader_timeout = 8;
 int leader_timeout = 5;
 
 bool expireFlag = true; //new
 
-uint8_t BEACON_ID = 1;
-
 XBee xbee = XBee();
-
 XBeeResponse response  = XBeeResponse();
 
 //create reusable objects for responses we expect to handle
-
 ZBRxResponse rx = ZBRxResponse();
 
-ZBTxStatusResponse txStatus = ZBTxStatusResponse();
-AtCommandResponse atResponse = AtCommandResponse();
-
-XBeeAddress64 broadcastAddr = XBeeAddress64(0x00000000, 0x0000FFFF); 
+XBeeAddress64 broadcastAddr = XBeeAddress64(0x00000000, 0x0000FFFF);
 
 void processResponse(){
   if (xbee.getResponse().isAvailable()) {
@@ -49,7 +42,6 @@ void processResponse(){
       //xbee conntected
       if (xbee.getResponse().getApiId() == ZB_RX_RESPONSE) {
         // got a zb rx packet
-        
         // now fill our zb rx class
         xbee.getResponse().getZBRxResponse(rx);
         if (rx.getOption() == ZB_PACKET_ACKNOWLEDGED) {
@@ -69,21 +61,38 @@ void processResponse(){
     } else if (xbee.getResponse().isError()) {
       Serial.print("error code:");
       Serial.println(xbee.getResponse().getErrorCode());
+    } else {
+      checkLeader();
     }
+}
+
+void checkLeader() {
+  if (leaderID == identity.toInt()) {
+    if (leader_timer == leader_timeout) {
+      leader_timer = 0;
+      leaderBroadcast();
+    } else {
+      leader_timer++;
+    }
+  } else if(checkLeaderExpire){
+    //fix the bug when remove the rest Arduino but leave one
+    checkLeader_timer = 0;
+    broadcastMsg(identity);
+  } else {
+   checkLeader_timer++;
+  }
 }
 
 void setup (){
   Serial.begin(BAUD);
   xbeeSerial.begin(BAUD);
-  isLeader = false;
   xbee.setSerial(xbeeSerial);
   Serial.println("Initializing transmitter...");
 }
 
 //rebroadcast leader id
-void broadcastMsg(int id) {
+void broadcastMsg(int w) {
   uint8_t value = (uint8_t)id;
-  Serial.println("here2" + String(value));
   uint8_t payload[] = {value};
   ZBTxRequest zbTx = ZBTxRequest(broadcastAddr, payload, sizeof(payload));
   xbee.send(zbTx);
@@ -91,7 +100,6 @@ void broadcastMsg(int id) {
 
 void leaderBroadcast() {
   uint8_t payload[] = {identity};
-  Serial.println("here1" + String(identity));
   ZBTxRequest zbTx = ZBTxRequest(broadcastAddr, payload, sizeof(payload));
   xbee.send(zbTx);
 }
@@ -133,6 +141,7 @@ void election(int id) {
       timeout_count = 0;
       timeout_flag = true;
       leaderID = final_id;
+      final_id = -1;
     } else {
       election_timer++;
       broadcastMsg(final_id);
@@ -145,29 +154,4 @@ void loop(){
   delay(1000);
   xbee.readPacket();
   processResponse();
-  if (leaderID == identity) {
-    if (leader_timer == leader_timeout) {
-      leader_timer = 0;
-      leaderBroadcast();
-    } else {
-      leader_timer++;
-    }
-  } else if(checkLeader_timer >= checkLeader_timeout){
-    //fix the bug when remove the rest Arduino but leave one
-    checkLeader_timer = 0;
-    Serial.println("Leader ID : "+String(leaderID));
-  }else {
-   checkLeader_timer++;
-   Serial.println("checkLeader_timer : " + String(checkLeader_timer) + "election_timer : " +  election_timer);
-   if (checkLeaderExpire()) {
-     if (election_timer < election_timeout) {
-//          Serial.println("here6");
-       broadcastMsg(final_id);
-       election_timer++;
-     } else {
-       // election_timer = 0
-       leaderID = final_id;
-     }
-   }
- }
 }
