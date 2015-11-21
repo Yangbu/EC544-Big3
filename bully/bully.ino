@@ -22,8 +22,8 @@ int election_timer = 0;
 int leader_timer = 0;
 
 int election_timeout = 3;
-int checkLeader_timeout = 8;
-int leader_timeout = 4;
+int checkLeader_timeout = 9;
+int leader_timeout = 1;
 
 
 int getIdentity() {
@@ -70,13 +70,15 @@ void processResponse(){
     String info = msg.substring(msg.indexOf(':') + 1);
     int id = msg.substring(0,msg.indexOf(':')).toInt();
     if (info == "Leader") {
+      checkLeader_timer = 0;
       if (id == leaderID) {
         Serial.println("leader is alive");
-        checkLeader_timer = 0;
+//        checkLeader_timer = 0;
       } else {
         election(id);
       }
-    } 
+    }
+     
   } else {
     checkLeader();
   }
@@ -118,18 +120,9 @@ void leaderBroadcast() {
   Serial.println("New Leader :" + String(leaderID));
 }
 
-boolean checkLeaderExpire() {
-  if (checkLeader_timer >= checkLeader_timeout || leaderID == -1) {
-    leaderID = -1;
-    return true;
-  } else {
-    return false;
-  }
-}
-
 boolean checkElectionTimeOut() {
   if (timeout_flag) {
-    if (timeout_count < 3) {
+    if (timeout_count < 2) {
       timeout_count++;
     } else {
       timeout_flag = false;
@@ -162,42 +155,45 @@ void election(int id) {
     } else {
       election_timer++;
       broadcastMsg(final_id);
-       Serial.println("election continue" + String(election_timer));
+      Serial.println("election continue" + String(election_timer));
     }
   }
 }
 
 void checkLeader() {
   if (leaderID == identity) {
-    if (leader_timer == leader_timeout) {
+    if (leader_timer >= leader_timeout) {
       leader_timer = 0;
       leaderBroadcast();
     } else {
       leader_timer++;
     }
-  } else if(checkLeader_timer==checkLeader_timeout){
+  } else if(checkLeader_timer >= checkLeader_timeout){
         //fix the bug when remove the rest Arduino but leave one
         checkLeader_timer = 0;
-         broadcastMsg(identity);
-        Serial.println("Leader ID : "+String(leaderID));
+        broadcastMsg(identity);
+        Serial.println("Leader "+String(leaderID) + " is dead.");
+        leaderID = -1;
     }else {
-      checkLeader_timer++;
       Serial.println("checkLeader_timer : " + String(checkLeader_timer) + "election_timer : " +  String(election_timer));
-      if (checkLeaderExpire()) {
+      if (leaderID == -1) {
+        checkLeader_timer = 0;
         if (election_timer < election_timeout) {
-//          Serial.println("here6");
-            broadcastMsg(final_id);
+          broadcastMsg(final_id);
           election_timer++;
         } else {
-          // election_timer = 0
+          election_timer = 0;
           leaderID = final_id;
+          final_id = identity;
         }
+      } else {
+         checkLeader_timer++;
       }
     }
 }
 
 void loop(){
   processResponse();
-  delay(1500);
+  delay(1000);
 }
 
