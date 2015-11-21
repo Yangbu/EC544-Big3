@@ -57,9 +57,9 @@ void loop()
       /*Send Message*/
       uint8_t payload[] = {'Y', id};
       // Specify the address of the remote XBee (this is the SH + SL)
-      XBeeAddress64 addr64 = XBeeAddress64(0x0, 0x0000FFFF);
+//      XBeeAddress64 addr64 = XBeeAddress64(0x0, 0x0000FFFF);
       // Create a TX Request
-      ZBTxRequest zbTx = ZBTxRequest(addr64, payload, sizeof(payload));
+      ZBTxRequest zbTx = ZBTxRequest(XBeeAddress64.BROADCAST, payload, sizeof(payload));
       // Send your request
       xbee.send(zbTx);
 //      }

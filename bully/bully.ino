@@ -5,15 +5,14 @@
 // Define baud rate here
 #define BAUD 9600
 // Create an xBee object
-SoftwareSerial xbeeSerial(2,3); // Rx, Tx
+SoftwareSerial xbee(2,3); // Rx, Tx
+int identity;
 
 // Looping Variables
 boolean isLeader;
 int leaderID;
 int final_id;
 
-//identity of this node
-uint8_t identity = 3;
 
 boolean timeout_flag = false;
 int timeout_count = 0;
@@ -22,78 +21,101 @@ int checkLeader_timer = 0;
 int election_timer = 0;
 int leader_timer = 0;
 
-int election_timeout = 8;
+int election_timeout = 3;
 int checkLeader_timeout = 8;
-int leader_timeout = 5;
+int leader_timeout = 4;
 
-bool expireFlag = true; //new
 
-uint8_t BEACON_ID = 1;
+int getIdentity() {
+  String s;
 
-XBee xbee = XBee();
+  // Enter configuration mode - Should return "OK" when successful.
+  delay(1000);    // MUST BE 1000
+  xbee.write("+++");
+  delay(1000);    // MUST BE 1000
+  xbee.write("\r");
+  delay(100);
 
-XBeeResponse response  = XBeeResponse();
+  // Get the OK and clear it out.
+  while (xbee.available() > 0) {
+    Serial.print(char(xbee.read()));
+  }
+  Serial.println("");
 
-//create reusable objects for responses we expect to handle
+  // Send "ATNI" command to get the NI value of xBee.
+  xbee.write("ATNI\r");
+  delay(100);
+  while (xbee.available() > 0) {
+      s += char(xbee.read());
+  }
+  delay(100);
 
-ZBRxResponse rx = ZBRxResponse();
+  // Exit configuration mode
+  xbee.write("ATCN\r");
+  delay(1000);
 
-ZBTxStatusResponse txStatus = ZBTxStatusResponse();
-AtCommandResponse atResponse = AtCommandResponse();
+  // Flush Serial Buffer Before Start
+  while (xbee.available() > 0) {
+    Serial.print(char(xbee.read()));
+  }
+  Serial.println("");
+  delay(100);
 
-XBeeAddress64 broadcastAddr = XBeeAddress64(0x00000000, 0x0000FFFF); 
-
-void processResponse(){
-  if (xbee.getResponse().isAvailable()) {
-      // got something
-      //xbee conntected
-      if (xbee.getResponse().getApiId() == ZB_RX_RESPONSE) {
-        // got a zb rx packet
-        
-        // now fill our zb rx class
-        xbee.getResponse().getZBRxResponse(rx);
-        if (rx.getOption() == ZB_PACKET_ACKNOWLEDGED) {
-           // the sender got an ACK
-            Serial.println("packet acknowledged");
-        } else {
-          Serial.println("packet not acknowledged");
-        }
-        int id = rx.getData()[0];
-        Serial.println("GET ID : " + String(id));
-        if (id == leaderID) {
-          checkLeader_timer = 0;
-        } else {
-          election(id);
-        }
-      }
-    } else if (xbee.getResponse().isError()) {
-      Serial.print("error code:");
-      Serial.println(xbee.getResponse().getErrorCode());
-    }
+  return s.toInt();
 }
 
-void setup (){
+void processResponse(){
+  if (xbee.available()) {
+    String msg = readTheMsg();
+    String info = msg.substring(msg.indexOf(':') + 1);
+    int id = msg.substring(0,msg.indexOf(':')).toInt();
+    if (info == "Leader") {
+      if (id == leaderID) {
+        Serial.println("leader is alive");
+        checkLeader_timer = 0;
+      } else {
+        election(id);
+      }
+    } 
+  } else {
+    checkLeader();
+  }
+}
+
+void setup() {
+  xbee.begin(BAUD);
   Serial.begin(BAUD);
-  xbeeSerial.begin(BAUD);
   isLeader = false;
-  xbee.setSerial(xbeeSerial);
-  Serial.println("Initializing transmitter...");
+  identity = getIdentity();
+  final_id = identity;
+  leaderID = -1;
+  Serial.println("My Identity is : "+ identity);
+  xbee.flush();
+  Serial.println("Setup Complete");
+}
+
+String readTheMsg() {
+  String msg  = "";
+  while(xbee.available() > 0) {
+    char c = char(xbee.read());
+    if (c == '\n') {
+      break;
+    }
+    msg += c;
+  }
+  Serial.println(msg);
+  return msg;
 }
 
 //rebroadcast leader id
 void broadcastMsg(int id) {
-  uint8_t value = (uint8_t)id;
-  Serial.println("here2" + String(value));
-  uint8_t payload[] = {value};
-  ZBTxRequest zbTx = ZBTxRequest(broadcastAddr, payload, sizeof(payload));
-  xbee.send(zbTx);
+  xbee.print(String(id) + ":Leader\n");
+  Serial.println("Temp Leader :" + String(id));
 }
 
 void leaderBroadcast() {
-  uint8_t payload[] = {identity};
-  Serial.println("here1" + String(identity));
-  ZBTxRequest zbTx = ZBTxRequest(broadcastAddr, payload, sizeof(payload));
-  xbee.send(zbTx);
+  xbee.print(String(identity)+ ":Leader\n");
+  Serial.println("New Leader :" + String(leaderID));
 }
 
 boolean checkLeaderExpire() {
@@ -120,6 +142,7 @@ boolean checkElectionTimeOut() {
 void election(int id) {
   Serial.println("Electing...");
   if (checkElectionTimeOut()) {
+    Serial.println("election over");
     return;
   }
   leaderID = -1;
@@ -127,24 +150,24 @@ void election(int id) {
     final_id = id;
     election_timer = 0;
     broadcastMsg(final_id);
+    Serial.println("new candidate");
   } else {
     if (election_timer >= election_timeout){
       election_timer = 0;
       timeout_count = 0;
       timeout_flag = true;
       leaderID = final_id;
+      final_id = identity;
+      Serial.println("election timeout");
     } else {
       election_timer++;
       broadcastMsg(final_id);
+       Serial.println("election continue" + String(election_timer));
     }
   }
 }
 
-void loop(){
-//  sendTx(zbTx);
-  delay(1000);
-  xbee.readPacket();
-  processResponse();
+void checkLeader() {
   if (leaderID == identity) {
     if (leader_timer == leader_timeout) {
       leader_timer = 0;
@@ -152,22 +175,28 @@ void loop(){
     } else {
       leader_timer++;
     }
-  } else if(checkLeader_timer >= checkLeader_timeout){
-    //fix the bug when remove the rest Arduino but leave one
-    checkLeader_timer = 0;
-    Serial.println("Leader ID : "+String(leaderID));
-  }else {
-   checkLeader_timer++;
-   Serial.println("checkLeader_timer : " + String(checkLeader_timer) + "election_timer : " +  election_timer);
-   if (checkLeaderExpire()) {
-     if (election_timer < election_timeout) {
+  } else if(checkLeader_timer==checkLeader_timeout){
+        //fix the bug when remove the rest Arduino but leave one
+        checkLeader_timer = 0;
+        Serial.println("Leader ID : "+String(leaderID));
+    }else {
+      checkLeader_timer++;
+      Serial.println("checkLeader_timer : " + String(checkLeader_timer) + "election_timer : " +  String(election_timer));
+      if (checkLeaderExpire()) {
+        if (election_timer < election_timeout) {
 //          Serial.println("here6");
-       broadcastMsg(final_id);
-       election_timer++;
-     } else {
-       // election_timer = 0
-       leaderID = final_id;
-     }
-   }
- }
+            broadcastMsg(final_id);
+          election_timer++;
+        } else {
+          // election_timer = 0
+          leaderID = final_id;
+        }
+      }
+    }
 }
+
+void loop(){
+  processResponse();
+  delay(1500);
+}
+
