@@ -32,7 +32,6 @@ int red = 4;
 int green = 5;
 int blue = 6;
 int switchState = 0;
-int infect = 0;
 
 //AT command get id 
 int getIdentity() {
@@ -77,15 +76,11 @@ int getIdentity() {
 void processResponse(){
   if (xbee.available()) {
     String msg = readTheMsg();
-    String info = msg.substring(msg.indexOf(':') + 1,msg.indexOf(':') + 2);
+    String info = msg.substring(msg.indexOf(':') + 1);
     int inf = msg.indexOf('V');
     int cur = msg.indexOf('C');
-    String s = msg.substring(msg.indexOf('(') + 1);
     int id = msg.substring(0,msg.indexOf(':')).toInt();
     
-    if(s=="N" || s=="A"){
-       changeState(s);
-    }
     if(inf==0){    
       infection();
     }
@@ -93,7 +88,7 @@ void processResponse(){
       cure();
     }
     
-    if (info == "L") {
+    if (info == "Leader") {
       isLeader = false;
       digitalWrite(blue, LOW);
       checkingTime = 0;
@@ -113,22 +108,11 @@ void processResponse(){
   }
 }
 
-void changeState(String s){
-  if(s=="A"){
-    digitalWrite(red, LOW);
-    digitalWrite(green,HIGH);
-  }
-  if(s=="N"){
-    digitalWrite(red, HIGH);
-    digitalWrite(green,LOW);
-  }
-}
 //Infection function
 void infection(){
   if(!isLeader){
     digitalWrite(red, HIGH);
     digitalWrite(green, LOW);
-    infect = 1;
   }
 }
 
@@ -136,7 +120,6 @@ void infection(){
 void cure(){
   digitalWrite(red, LOW);
   digitalWrite(green, HIGH);
-  infect = 0;
 }
 
 void setup() {
@@ -174,12 +157,7 @@ String readTheMsg() {
 
 //Broadcast Template Leader Function
 void broadcastMsg(int id) {
-  if(infect==1){
-      xbee.print(String(id) + ":Leader(Now infected)\n");
-  }
-  if(infect==0){
-      xbee.print(String(id) + ":Leader(Alive)\n");
-  }
+  xbee.print(String(id) + ":Leader\n");
   Serial.println("Temp Leader :" + String(id));
 }
 
@@ -280,7 +258,6 @@ void loop(){
       Serial.println("Infecting others!!!");
       digitalWrite(red, HIGH);
       digitalWrite(green, LOW);
-      infect = 1;
       
     }
   }
