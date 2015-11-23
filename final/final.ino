@@ -6,33 +6,36 @@
 #define BAUD 9600
 // Create an xBee object
 SoftwareSerial xbee(2,3); // Rx, Tx
+
+//------------------------------------------------
+//current node
 int identity;
+int status = 0;
+int leaderID;
+boolean isLeader;
 
 // Looping Variables
-boolean isLeader;
-int leaderID;
-int final_id;
+int temp_id;
 
-int status = 0;
-
-
-boolean timeout_flag = false;
-int timeout_count = 0;
 
 //Counting timer
-int checkingTime = 0;
-int electionTime = 0;
-int leaderTime = 0;
+int checkLeaderTimer = 0;
+int electionTimer = 0;
+int leaderTimer = 0;
 
-// End time of each process
+// Timeout variables
 int election_timeout = 3;
 int checkLeader_timeout = 9;
 int leader_timeout = 1;
+boolean timeout_flag = false;
+int timeout_count = 0;
 
-// Declare port
+// Declare LED pin number
 int red = 4;
 int green = 5;
 int blue = 6;
+
+// input pin status
 int switchState = 0;
 
 //AT command get id
@@ -74,49 +77,81 @@ int getIdentity() {
   return s.toInt();
 }
 
-//Response function
+//ReadMessage Function
+String readTheMsg() {
+  String msg  = "";
+  while(xbee.available() > 0) {
+    char c = char(xbee.read());
+    // cut the msg by ‘\n’
+    if (c == '\n') {
+      break;
+    }
+    msg += c;
+  }
+  Serial.println(msg);
+  return msg;
+}
+
+/*
+  Response function :
+  1. Get msg from other nodes
+    (1). Infection msg : None-leaders should response
+    (2). Curing msg : None-leaders should response
+    (3). Leader msg:
+      - (1). Sent from leader : checkLeaderTimer reset
+      - (2). Sent from None-leaders: Having an election
+  2. Don't get anything
+    Check if leader is alive.
+*/
 void processResponse(){
   if (xbee.available()) {
+    // Received MSG
     String msg = readTheMsg();
     String info = msg.substring(msg.indexOf(':') + 1);
     int id = msg.substring(0, msg.indexOf(':')).toInt();
     if (info == "Infection") {
+      // Infection msg
       infection();
     } else if (info == "Curing") {
+      // Cure msg
       cure();
-      checkingTime = 0;
+      checkLeaderTimer = 0;
     } else {
+      // Leader msg
       Serial.println(info);
       String othersStatus = info.substring(info.indexOf(':') + 1);
       info = info.substring(0, info.indexOf(':'));
       if (othersStatus == "1") {
+        // Only update the status when someone is infected
         status = 1;
-      } 
-//      else if (othersStatus == "0") {
-//        status = 0;
-//      }
+      }
       isLeader = false;
-      checkingTime = 0;
+      checkLeaderTimer = 0;
       if (id == leaderID) {
         if (leaderID == identity) {
           leaderBroadcast();
         } else {
+          // leader msg, sent from leader : leader is alive
           Serial.println("leader is alive");
         }
       } else {
+        // leader msg, sent from None-leaders : election
         election(id);
       }
     }
   } else {
+    // No msg received, check if leader is still alive
     checkLeader();
   }
 }
 
 //Infection function
 void infection(){
+  // only affect None-leaders
   if(!isLeader){
     digitalWrite(red, HIGH);
     digitalWrite(green, LOW);
+    // set the status to be 1 (infected)
     status = 1;
   }
 }
@@ -128,57 +163,13 @@ void cure(){
   status = 0;
 }
 
-void setup() {
-  xbee.begin(BAUD);
-  Serial.begin(BAUD);
-  isLeader = false;
 
-  pinMode(green, OUTPUT);
-  pinMode(blue, OUTPUT);
-  pinMode(red, OUTPUT);
-  pinMode(8, INPUT);
-  digitalWrite(green,HIGH);
 
-  identity = getIdentity();
-  final_id = identity;
-  leaderID = -1;
-  Serial.println("My Identity is : "+ String(identity));
-  xbee.flush();
-  Serial.println("Setup Complete");
-}
-
-//ReadMessage Function
-String readTheMsg() {
-  String msg  = "";
-  while(xbee.available() > 0) {
-    char c = char(xbee.read());
-    if (c == '\n') {
-      break;
-    }
-    msg += c;
-  }
-  Serial.println(msg);
-  return msg;
-}
-
-//Broadcast Template Leader Function
-void broadcastMsg(int id) {
-  xbee.print(String(id) + ":Leader:" + String(status) + "\n");
-  Serial.println("Temp Leader :" + String(id) + " Status : " + String(status));
-}
-
-//Broadcast Final Leader Function
-void leaderBroadcast() {
-  xbee.print(String(identity)+ ":Leader:2\n");
-  Serial.println("New Leader :" + String(leaderID));
-  digitalWrite(blue, HIGH);
-  digitalWrite(green, HIGH);
-  digitalWrite(red, LOW);
-  isLeader = true;
-}
-
-//Check Election Time
-boolean checkElectionTimeOut() {
+/*
+  Check if the election is finished
+  If finished, the following two statments should be discarded
+*/
+boolean checkelectionTimeOut() {
   if (timeout_flag) {
     if (timeout_count < 2) {
       timeout_count++;
@@ -190,38 +181,47 @@ boolean checkElectionTimeOut() {
   return timeout_flag;
 }
 
-//Election Process
+/*
+  Election process
+  If new candidate came in with a higher ID, it will refresh the timer
+  When the election process is done, it will assain the new leader
+*/
 void election(int id) {
   Serial.println("Electing...");
   digitalWrite(blue, LOW);
-  if (checkElectionTimeOut()) {
+  if (checkelectionTimeOut()) {
     Serial.println("election over");
     return;
   }
   leaderID = -1;
-  if (id > final_id) {
-    final_id = id;
-    electionTime = 0;
-    broadcastMsg(final_id);
+  if (id > temp_id) {
+    // New candidate with higher ID came in
+    temp_id = id;
+    electionTimer = 0;
+    broadcastMsg(temp_id);
     Serial.println("new candidate");
   } else {
-    if (electionTime >= election_timeout){
-      electionTime = 0;
+    if (electionTimer >= election_timeout){
+      // Election is over
+      electionTimer = 0;
       timeout_count = 0;
       timeout_flag = true;
       assignLeader();
       Serial.println("election timeout");
     } else {
-      electionTime++;
-      broadcastMsg(final_id);
-      Serial.println("election continue" + String(electionTime));
+      electionTimer++;
+      broadcastMsg(temp_id);
+      Serial.println("election continue" + String(electionTimer));
     }
   }
 }
 
+/*
+  Assign the leader and also check out the status of current node
+*/
 void assignLeader() {
-  leaderID = final_id;
-  final_id = identity;
+  leaderID = temp_id;
+  temp_id = identity;
   Serial.println("Leader ID : "  + String(leaderID));
   if (leaderID == identity) {
     status = 0;
@@ -237,38 +237,67 @@ void assignLeader() {
   }
 }
 
-//Check Current Leader Removed or not
+/*
+  Check leader is alive or not.
+  If leader is myself, broadcast "I am alive" msg to the other none-leaders
+*/
 void checkLeader() {
   if (leaderID == identity) {
-    if (leaderTime >= leader_timeout) {
-      leaderTime = 0;
+    if (leaderTimer >= leader_timeout) {
+      leaderTimer = 0;
       leaderBroadcast();
     } else {
-      leaderTime++;
+      leaderTimer++;
     }
-  } else if(checkingTime >= checkLeader_timeout){
+  } else if(checkLeaderTimer >= checkLeader_timeout){
         //fix the bug when remove the rest Arduino but leave one
-        checkingTime = 0;
+        checkLeaderTimer = 0;
         leaderID = -1;
         broadcastMsg(identity);
         Serial.println("Leader "+String(leaderID) + " is dead.");
     }else {
-      Serial.println("checkingTime : " + String(checkingTime) + "electionTime : " +  String(electionTime));
+      Serial.println("checkLeaderTimer : " + String(checkLeaderTimer) + "electionTimer : " +  String(electionTimer));
       if (leaderID == -1) {
-        checkingTime = 0;
-        if (electionTime < election_timeout) {
-          broadcastMsg(final_id);
-          electionTime++;
+        // leader is not assigned yet, election is not finished
+        checkLeaderTimer = 0;
+        if (electionTimer < election_timeout) {
+          broadcastMsg(temp_id);
+          electionTimer++;
         } else {
-          electionTime = 0;
+          electionTimer = 0;
           assignLeader();
         }
       } else {
-         checkingTime++;
+         checkLeaderTimer++;
       }
     }
 }
 
+/*
+  Broadcast Leader Infomation Function
+  ID will be the temp_id
+  Status will be the status of the current node
+  The syntax is "ID:Leader:status"
+*/
+void broadcastMsg(int id) {
+  xbee.print(String(id) + ":Leader:" + String(status) + "\n");
+  Serial.println("Temp Leader :" + String(id) + " Status : " + String(status));
+}
+
+/*
+  Leader Broadcast "I am alive." to all the other None-leaders
+  The syntax is "ID:Leader:2" (2 means nothing to the none-leaders)
+*/
+void leaderBroadcast() {
+  xbee.print(String(identity)+ ":Leader:2\n");
+  Serial.println("New Leader :" + String(leaderID));
+  digitalWrite(blue, HIGH);
+  digitalWrite(green, HIGH);
+  digitalWrite(red, LOW);
+  isLeader = true;
+}
+
+// infecting other none-leaders
 void infectOthers() {
   xbee.print(String(identity) + ":Infection\n");
   Serial.println("Infecting others!!!");
@@ -277,12 +306,16 @@ void infectOthers() {
   status = 1;
 }
 
+// curing other none-leaders
 void cureOthers() {
   xbee.print(String(identity) + ":Curing\n");
   status = 0;
   Serial.println("Leader is curing others !!!");
 }
 
+// check the input :
+//    if 0 : do nothing
+//    if 1 : infection or cure
 void checkStatus () {
   switchState = digitalRead(8);
   if(switchState == 1){
@@ -292,6 +325,25 @@ void checkStatus () {
       infectOthers();
     }
   }
+}
+
+void setup() {
+  xbee.begin(BAUD);
+  Serial.begin(BAUD);
+
+  pinMode(green, OUTPUT);
+  pinMode(blue, OUTPUT);
+  pinMode(red, OUTPUT);
+  pinMode(8, INPUT);
+  digitalWrite(green,HIGH);
+
+  isLeader = false;
+  identity = getIdentity();
+  temp_id = identity;
+  leaderID = -1;
+  Serial.println("My Identity is : "+ String(identity));
+  xbee.flush();
+  Serial.println("Setup Complete");
 }
 
 void loop(){
